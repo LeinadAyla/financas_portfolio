@@ -1,0 +1,5 @@
+projeto_financas_v1/venv/
+projeto_financas_v1/docker/db_data/
+__pycache__/
+*.pyc
+.vscode/
