@@ -1,25 +1,25 @@
-from flask import Flask
+from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
 app = Flask(__name__)
-
-# Configurações de conexão (Psycopg 3)
+# Configurações
+app.config['SECRET_KEY'] = 'uma_chave_muito_segura_2026'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg://dev_user:dev_password@localhost:5432/financas_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'uma_chave_muito_segura_2026'
 
 db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
 
-# --- MODELOS DE DADOS (Multi-tenancy) ---
-
-class User(db.Model):
+# --- MODELOS ---
+class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False) # Guardaremos Hash depois
-    
-    # Um utilizador pode ter várias transações
+    password = db.Column(db.String(255), nullable=False)
     transactions = db.relationship('Transaction', backref='owner', lazy=True)
 
 class Transaction(db.Model):
@@ -27,26 +27,88 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     description = db.Column(db.String(100), nullable=False)
     value = db.Column(db.Float, nullable=False)
-    type = db.Column(db.String(10), nullable=False) # 'receita' ou 'despesa'
+    type = db.Column(db.String(10), nullable=False) # 'entrada' ou 'saida'
     date = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # A CHAVE DO ISOLAMENTO (Multi-tenancy)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
-# --- INICIALIZAÇÃO DO BANCO ---
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
-# Este comando cria as tabelas no Docker se elas não existirem
-with app.app_context():
-    db.create_all()
-    print("🚀 Banco de dados PostgreSQL sincronizado e tabelas criadas!")
+# --- ROTAS ---
 
 @app.route('/')
+def index():
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    return redirect(url_for('login'))
+
+@app.route('/home', methods=['GET', 'POST'])
+@login_required
 def home():
-    return {
-        "status": "online",
-        "database": "conectado",
-        "tabelas": ["users", "transactions"]
-    }
+    if request.method == 'POST':
+        desc = request.form.get('description')
+        val = float(request.form.get('value'))
+        t_type = request.form.get('type')
+        
+        new_t = Transaction(description=desc, value=val, type=t_type, owner=current_user)
+        db.session.add(new_t)
+        db.session.commit()
+        return redirect(url_for('home'))
+
+    user_transactions = Transaction.query.filter_by(user_id=current_user.id).order_by(Transaction.date.desc()).all()
+    
+    total_entrada = sum(t.value for t in user_transactions if t.type == 'entrada')
+    total_saida = sum(t.value for t in user_transactions if t.type == 'saida')
+    saldo = total_entrada - total_saida
+
+    return render_template('dashboard.html', transactions=user_transactions, saldo=saldo)
+
+@app.route('/delete/<int:id>')
+@login_required
+def delete_transaction(id):
+    t = Transaction.query.get_or_404(id)
+    # Segurança: Só deleta se a transação pertencer ao usuário logado
+    if t.user_id == current_user.id:
+        db.session.delete(t)
+        db.session.commit()
+    return redirect(url_for('home'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        user_input = request.form['username']
+        pwd_input = request.form['password']
+        hash_pwd = generate_password_hash(pwd_input)
+        new_user = User(username=user_input, password=hash_pwd)
+        try:
+            db.session.add(new_user)
+            db.session.commit()
+            return redirect(url_for('login'))
+        except:
+            db.session.rollback()
+            return "Erro: Usuário já existe!"
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user_input = request.form['username']
+        pwd_input = request.form['password']
+        user = User.query.filter_by(username=user_input).first()
+        if user and check_password_hash(user.password, pwd_input):
+            login_user(user)
+            return redirect(url_for('home'))
+        flash('Credenciais inválidas!')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
 
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Finanças 2026</title>
+    <style>
+        :root { --bg: #f0f2f5; --card: #ffffff; --text: #333; --input-border: #ddd; }
+        @media (prefers-color-scheme: dark) {
+            :root { --bg: #18191a; --card: #242526; --text: #e4e6eb; --input-border: #3e4042; }
+        }
+        body { font-family: 'Segoe UI', Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: var(--bg); color: var(--text); transition: 0.3s; }
+        .card { background: var(--card); padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); width: 90%; max-width: 320px; text-align: center; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid var(--input-border); border-radius: 6px; background: var(--bg); color: var(--text); box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        button:hover { background-color: #0069d9; }
+        .error { color: #ff4d4d; font-size: 0.9rem; }
+        a { color: #3498db; text-decoration: none; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Login</h2>
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            {% for message in messages %}<p class="error">{{ message }}</p>{% endfor %}
+          {% endif %}
+        {% endwith %}
+        <form method="POST">
+            <input type="text" name="username" placeholder="Usuário" required>
+            <input type="password" name="password" placeholder="Senha" required>
+            <button type="submit">Entrar</button>
+        </form>
+        <p><a href="/register">Novo por aqui? Registe-se</a></p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finanças 2026 | Bank Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0f111a;
+            --card: #1c1f2e;
+            --primary: #8257e5; /* Roxo estilo moderno */
+            --text: #e1e1e6;
+            --green: #00e676;
+            --red: #ff5252;
+        }
+        body { 
+            font-family: 'Inter', 'Segoe UI', sans-serif; 
+            background: var(--bg); 
+            color: var(--text); 
+            margin: 0; 
+            padding: 20px;
+        }
+        .app-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) { .main-grid { grid-template-columns: 1fr; } }
+
+        .card {
+            background: var(--card);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            border: 1px solid #292d3e;
+        }
+        .balance-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--text);
+            margin: 10px 0;
+        }
+        .chart-box {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 14px;
+            margin: 10px 0;
+            border-radius: 10px;
+            border: none;
+            background: #292d3e;
+            color: white;
+            font-size: 1rem;
+        }
+        button {
+            background: var(--primary);
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: scale(1.02); background: #9466ff; }
+
+        .history-list { margin-top: 20px; }
+        .item {
+            background: var(--card);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: 0.3s;
+        }
+        .item:hover { background: #292d3e; }
+        .icon-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+        }
+        .delete-btn { color: #494d63; text-decoration: none; padding: 5px 10px; }
+        .delete-btn:hover { color: var(--red); }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div>
+                <p style="color: #888; margin: 0;">Bem-vindo de volta,</p>
+                <h2 style="margin: 0;">{{ current_user.username }} 👋</h2>
+            </div>
+            <a href="/logout" style="color: var(--red); text-decoration: none; font-weight: bold;">Sair</a>
+        </header>
+
+        <div class="main-grid">
+            <div class="card">
+                <p style="color: #888; margin: 0;">Saldo Disponível</p>
+                <div class="balance-value">R$ {{ "%.2f"|format(saldo) }}</div>
+                <div class="chart-box">
+                    <canvas id="myChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Nova Movimentação</h3>
+                <form method="POST">
+                    <input type="text" name="description" placeholder="Ex: Salário, Aluguel..." required>
+                    <input type="number" step="0.01" name="value" placeholder="Valor R$" required>
+                    <select name="type">
+                        <option value="entrada">📈 Entrada</option>
+                        <option value="saida">📉 Saída</option>
+                    </select>
+                    <button type="submit">Confirmar Lançamento</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="history-list">
+            <h3>Últimas Atividades</h3>
+            {% for t in transactions %}
+            <div class="item">
+                <div style="display: flex; align-items: center;">
+                    <div class="icon-circle" style="background: {{ '#00e67622' if t.type == 'entrada' else '#ff525222' }}">
+                        <i class="fas {{ 'fa-arrow-up' if t.type == 'entrada' else 'fa-arrow-down' }}" 
+                           style="color: {{ '#00e676' if t.type == 'entrada' else '#ff5252' }}"></i>
+                    </div>
+                    <div>
+                        <strong style="display: block;">{{ t.description }}</strong>
+                        <small style="color: #888;">{{ t.date.strftime('%d %b, %Y') }}</small>
+                    </div>
+                </div>
+                <div style="text-align: right; display: flex; align-items: center;">
+                    <span style="font-weight: bold; color: {{ '#00e676' if t.type == 'entrada' else '#ff5252' }}">
+                        {{ '+' if t.type == 'entrada' else '-' }} R$ {{ "%.2f"|format(t.value) }}
+                    </span>
+                    <a href="{{ url_for('delete_transaction', id=t.id) }}" class="delete-btn">
+                        <i class="fas fa-trash-alt"></i>
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const entradas = {{ transactions | selectattr('type', 'equalto', 'entrada') | map(attribute='value') | sum }};
+        const saidas = {{ transactions | selectattr('type', 'equalto', 'saida') | map(attribute='value') | sum }};
+
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: [entradas, saidas],
+                    backgroundColor: ['#8257e5', '#ff5252'],
+                    borderWidth: 0,
+                    cutout: '80%'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } }
+            }
+        });
+    </script>
+</body>
+</html>
