@@ -5,6 +5,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
 app = Flask(__name__)
+
+# --- FILTRO PERSONALIZADO PARA MOEDA BRASILEIRA (BRL) ---
+@app.template_filter('format_brl')
+def format_brl(value):
+    try:
+        # Formata: 1234.5 -> 1.234,50
+        # O replace garante a inversão de padrões americanos para brasileiros
+        return "{:,.2f}".format(value).replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return "0,00"
+
 # Configurações
 app.config['SECRET_KEY'] = 'uma_chave_muito_segura_2026'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg://dev_user:dev_password@localhost:5432/financas_db'
@@ -54,15 +65,12 @@ def index():
 @login_required
 def home():
     if request.method == 'POST':
-        # Caso 1: Cadastro de Transação
         if 'description' in request.form:
             desc = request.form.get('description')
             val = float(request.form.get('value') or 0)
             t_type = request.form.get('type')
             new_t = Transaction(description=desc, value=val, type=t_type, owner=current_user)
             db.session.add(new_t)
-        
-        # Caso 2: Definição de Meta (Budget)
         elif 'limit_value' in request.form:
             limit = float(request.form.get('limit_value') or 0)
             existing_budget = Budget.query.filter_by(user_id=current_user.id).first()
@@ -75,15 +83,28 @@ def home():
         db.session.commit()
         return redirect(url_for('home'))
 
-    # Carregamento de Dados para o Dashboard
-    user_transactions = Transaction.query.filter_by(user_id=current_user.id).order_by(Transaction.date.desc()).all()
+    # Lógica de Busca e Filtro
+    search_query = request.args.get('search', '')
+    filter_month = request.args.get('month', '')
+
+    query = Transaction.query.filter_by(user_id=current_user.id)
+
+    if search_query:
+        query = query.filter(Transaction.description.ilike(f'%{search_query}%'))
+    
+    if filter_month == 'current':
+        curr_month = datetime.utcnow().month
+        curr_year = datetime.utcnow().year
+        query = query.filter(db.extract('month', Transaction.date) == curr_month,
+                             db.extract('year', Transaction.date) == curr_year)
+
+    user_transactions = query.order_by(Transaction.date.desc()).all()
     budget = Budget.query.filter_by(user_id=current_user.id).first()
     
     total_entrada = sum(t.value for t in user_transactions if t.type == 'entrada')
     total_saida = sum(t.value for t in user_transactions if t.type == 'saida')
     saldo = total_entrada - total_saida
 
-    # Lógica da Barra de Progresso
     progresso = 0
     if budget and budget.limit_value > 0:
         progresso = (total_saida / budget.limit_value) * 100
@@ -92,8 +113,10 @@ def home():
                            transactions=user_transactions, 
                            saldo=saldo, 
                            budget=budget, 
+                           total_entrada=total_entrada,
                            total_saida=total_saida,
-                           progresso=progresso)
+                           progresso=progresso,
+                           search_query=search_query)
 
 @app.route('/delete/<int:id>')
 @login_required
@@ -137,6 +160,11 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('login'))
+
+# --- TRATAMENTO DE ERROS ---
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
 
 if __name__ == '__main__':
     with app.app_context():
