@@ -31,9 +31,16 @@ class Transaction(db.Model):
     date = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
+class Budget(db.Model):
+    __tablename__ = 'budgets'
+    id = db.Column(db.Integer, primary_key=True)
+    category = db.Column(db.String(50), nullable=False)
+    limit_value = db.Column(db.Float, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 # --- ROTAS ---
 
@@ -47,29 +54,52 @@ def index():
 @login_required
 def home():
     if request.method == 'POST':
-        desc = request.form.get('description')
-        val = float(request.form.get('value'))
-        t_type = request.form.get('type')
+        # Caso 1: Cadastro de Transação
+        if 'description' in request.form:
+            desc = request.form.get('description')
+            val = float(request.form.get('value') or 0)
+            t_type = request.form.get('type')
+            new_t = Transaction(description=desc, value=val, type=t_type, owner=current_user)
+            db.session.add(new_t)
         
-        new_t = Transaction(description=desc, value=val, type=t_type, owner=current_user)
-        db.session.add(new_t)
+        # Caso 2: Definição de Meta (Budget)
+        elif 'limit_value' in request.form:
+            limit = float(request.form.get('limit_value') or 0)
+            existing_budget = Budget.query.filter_by(user_id=current_user.id).first()
+            if existing_budget:
+                existing_budget.limit_value = limit
+            else:
+                new_budget = Budget(category='Geral', limit_value=limit, user_id=current_user.id)
+                db.session.add(new_budget)
+        
         db.session.commit()
         return redirect(url_for('home'))
 
+    # Carregamento de Dados para o Dashboard
     user_transactions = Transaction.query.filter_by(user_id=current_user.id).order_by(Transaction.date.desc()).all()
+    budget = Budget.query.filter_by(user_id=current_user.id).first()
     
     total_entrada = sum(t.value for t in user_transactions if t.type == 'entrada')
     total_saida = sum(t.value for t in user_transactions if t.type == 'saida')
     saldo = total_entrada - total_saida
 
-    return render_template('dashboard.html', transactions=user_transactions, saldo=saldo)
+    # Lógica da Barra de Progresso
+    progresso = 0
+    if budget and budget.limit_value > 0:
+        progresso = (total_saida / budget.limit_value) * 100
+
+    return render_template('dashboard.html', 
+                           transactions=user_transactions, 
+                           saldo=saldo, 
+                           budget=budget, 
+                           total_saida=total_saida,
+                           progresso=progresso)
 
 @app.route('/delete/<int:id>')
 @login_required
 def delete_transaction(id):
-    t = Transaction.query.get_or_404(id)
-    # Segurança: Só deleta se a transação pertencer ao usuário logado
-    if t.user_id == current_user.id:
+    t = db.session.get(Transaction, id)
+    if t and t.user_id == current_user.id:
         db.session.delete(t)
         db.session.commit()
     return redirect(url_for('home'))
@@ -87,7 +117,7 @@ def register():
             return redirect(url_for('login'))
         except:
             db.session.rollback()
-            return "Erro: Usuário já existe!"
+            flash("Erro: Usuário já existe!")
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
