@@ -1,4 +1,6 @@
-flask==3.0.0
-flask-sqlalchemy==3.1.1
-flask-login==0.6.3
+Flask==3.0.0
+Flask-Login==0.6.3
+Flask-SQLAlchemy==3.1.1
 psycopg[binary]==3.2.4
+fpdf2==2.8.5
+Werkzeug==3.1.4

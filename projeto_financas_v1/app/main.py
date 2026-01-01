@@ -1,8 +1,10 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from fpdf import FPDF
+import io  # Essencial para gerenciar o fluxo de dados sem crash
 
 app = Flask(__name__)
 
@@ -10,8 +12,6 @@ app = Flask(__name__)
 @app.template_filter('format_brl')
 def format_brl(value):
     try:
-        # Formata: 1234.5 -> 1.234,50
-        # O replace garante a inversão de padrões americanos para brasileiros
         return "{:,.2f}".format(value).replace(",", "X").replace(".", ",").replace("X", ".")
     except (ValueError, TypeError):
         return "0,00"
@@ -38,7 +38,7 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     description = db.Column(db.String(100), nullable=False)
     value = db.Column(db.Float, nullable=False)
-    type = db.Column(db.String(10), nullable=False) # 'entrada' ou 'saida'
+    type = db.Column(db.String(10), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
@@ -83,10 +83,8 @@ def home():
         db.session.commit()
         return redirect(url_for('home'))
 
-    # Lógica de Busca e Filtro
     search_query = request.args.get('search', '')
     filter_month = request.args.get('month', '')
-
     query = Transaction.query.filter_by(user_id=current_user.id)
 
     if search_query:
@@ -117,6 +115,65 @@ def home():
                            total_saida=total_saida,
                            progresso=progresso,
                            search_query=search_query)
+
+# --- ROTA DE EXPORTAÇÃO PDF BLINDADA ---
+@app.route('/exportar_pdf')
+@login_required
+def exportar_pdf():
+    try:
+        user_transactions = Transaction.query.filter_by(user_id=current_user.id).order_by(Transaction.date.desc()).all()
+        
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 16)
+        
+        # Cabeçalho
+        pdf.cell(190, 10, "Relatorio Financeiro - Bank Pro 2026", ln=True, align='C')
+        pdf.set_font("Helvetica", size=10)
+        pdf.cell(190, 10, f"Usuario: {current_user.username} | Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='C')
+        pdf.ln(10)
+        
+        # Cabeçalho da Tabela
+        pdf.set_fill_color(130, 87, 229)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(80, 10, " Descricao", border=1, fill=True)
+        pdf.cell(35, 10, " Tipo", border=1, fill=True)
+        pdf.cell(40, 10, " Data", border=1, fill=True)
+        pdf.cell(35, 10, " Valor", border=1, fill=True)
+        pdf.ln()
+        
+        # Dados
+        pdf.set_text_color(0, 0, 0)
+        total_final = 0
+        for t in user_transactions:
+            valor_txt = format_brl(t.value)
+            pdf.cell(80, 10, f" {t.description}", border=1)
+            pdf.cell(35, 10, f" {t.type.capitalize()}", border=1)
+            pdf.cell(40, 10, f" {t.date.strftime('%d/%m/%Y')}", border=1)
+            pdf.cell(35, 10, f" R$ {valor_txt}", border=1)
+            pdf.ln()
+            total_final += t.value if t.type == 'entrada' else -t.value
+
+        pdf.ln(5)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(190, 10, f"SALDO TOTAL: R$ {format_brl(total_final)}", align='R')
+
+        # GERAÇÃO SEGURA DO STREAM DE BYTES
+        pdf_output = pdf.output()  # Captura os bytes do PDF
+        
+        # Cria o buffer na memória
+        buffer = io.BytesIO(pdf_output)
+        buffer.seek(0) # Volta para o início do arquivo na memória
+
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name='relatorio_bankpro_2026.pdf',
+            mimetype='application/pdf'
+        )
+    except Exception as e:
+        print(f"Erro ao gerar PDF: {e}")
+        return "Erro interno ao gerar o PDF", 500
 
 @app.route('/delete/<int:id>')
 @login_required
@@ -161,7 +218,6 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-# --- TRATAMENTO DE ERROS ---
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html'), 404

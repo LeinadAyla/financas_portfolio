@@ -49,6 +49,27 @@
         .icon-circle { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; }
         .delete-btn { color: #494d63; transition: 0.2s; }
         .delete-btn:hover { color: var(--red); }
+        
+        /* Estilo para o novo botão de PDF */
+        .btn-pdf {
+            background: #292d3e;
+            color: var(--text);
+            padding: 8px 15px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid #3d425a;
+            transition: 0.3s;
+        }
+        .btn-pdf:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
     </style>
 </head>
 <body>
@@ -107,13 +128,20 @@
         <div class="history-list">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h3 style="margin:0">Atividades</h3>
-                <form method="GET" style="display: flex; gap: 8px;">
-                    <input type="text" name="search" placeholder="Buscar..." value="{{ search_query if search_query else '' }}" style="width: 120px; margin:0; padding: 8px;">
-                    <select name="month" onchange="this.form.submit()" style="width: auto; margin:0; padding: 8px;">
-                        <option value="">Tudo</option>
-                        <option value="current" {{ 'selected' if request.args.get('month') == 'current' }}>Mês Atual</option>
-                    </select>
-                </form>
+                
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <a href="{{ url_for('exportar_pdf') }}" class="btn-pdf" download>
+                        <i class="fas fa-file-pdf" style="color: var(--red);"></i> Exportar PDF
+                    </a>
+
+                    <form method="GET" style="display: flex; gap: 8px;">
+                        <input type="text" name="search" placeholder="Buscar..." value="{{ search_query if search_query else '' }}" style="width: 120px; margin:0; padding: 8px;">
+                        <select name="month" onchange="this.form.submit()" style="width: auto; margin:0; padding: 8px;">
+                            <option value="">Tudo</option>
+                            <option value="current" {{ 'selected' if request.args.get('month') == 'current' }}>Mês Atual</option>
+                        </select>
+                    </form>
+                </div>
             </div>
 
             {% for t in transactions %}
